@@ -9,9 +9,13 @@ import time
 
 # Global Aphid counts. Their values shouldn't matter at this point
 global TotalAphids
+global TotalMantis
+global MantisStarvations
 global AphidStarvations
 TotalAphids = 0
+TotalMantis = 0
 AphidStarvations = []
+MantisStarvations = []
 
 def main():
     rseed = int(sys.argv[1])
@@ -55,7 +59,7 @@ def main():
     avgRuns = totalRuns / nruns
     stdDev = sqrt((runSquares / nruns) - avgRuns**2)
     if NICE:
-        print("OUTPUT Standard Deviation %f Average turns %f Fraction first player %f" % (stdDev, avgRuns, fracFirstPlayer))
+        print("OUTPUT Standard Deviation %f Average turns %f Fraction first player %f" % (avgRuns, stdDev, fracFirstPlayer))
     else:
         # Default for Hellman will be the simplest output
         print("OUTPUT %f %f %f" % (stdDev, avgRuns, fracFirstPlayer))
@@ -67,6 +71,10 @@ def main():
         print("Aphid starvations:")
         global AphidStarvations
         print(str(AphidStarvations))
+
+        print("Mantis starvations:")
+        global MantisStarvations
+        print(str(MantisStarvations))
 
     if TIMED:
         # time.time() returns a float for the number of seconds since epoch
@@ -83,8 +91,12 @@ def runSimulation(gameBoard, nPlayers):
     # Initialize the number of global aphids (yes, it's in global scope, because lazy)
     global TotalAphids
     TotalAphids = 50
+    global TotalMantis
+    TotalMantis = 8
     global AphidStarvations
     AphidStarvations.append(0)
+    global MantisStarvations
+    MantisStarvations.append(0)
 
     playerAtEnd = -1
     # list of the players that have finished
@@ -106,6 +118,11 @@ def runSimulation(gameBoard, nPlayers):
         if AphidStarvations[-1] >= 100000:
             # Too many aphid requests with no yields. We should stop
             print("There were %i aphid starvations in this game. It's.... time to stop" % AphidStarvations[-1])
+            #exit(-1)
+            return (totalTurns, -1)
+        if MantisStarvations[-1] >= 100000:
+            # Too many mantis requests with no yields. We should stop
+            print("There were %i mantis starvations in this game. It's.... time to stop" % MantisStarvations[-1])
             #exit(-1)
             return (totalTurns, -1)
 
@@ -136,6 +153,7 @@ def runSimulation(gameBoard, nPlayers):
                 playerAtEnd = playersTurn
             # Add their aphids back into the pool
             TotalAphids += players[playersTurn].aphids
+            TotalMantis += players[playersTurn].mantis
             playersReachedEnd.append(playersTurn)
 
         # Next player's turn
@@ -287,7 +305,7 @@ class Square(Action):
             if INFO:
                 print("There's an interrogation being led by mantises")
             if player.mantis > 0:
-                player.mantis -= 1
+                incrementMantis(player, -1)
                 player.moves_left += 1
                 if INFO:
                     print("BUG OFF!!!!")
@@ -322,7 +340,7 @@ class Square(Action):
             nextSquare.handle_land(player, board)
         else:
             incrementAphids(player, current_square.aphids)
-            player.mantis += current_square.mantis
+            incrementMantis(player, current_square.mantis)
             player.moves_left += current_square.moves
             if current_square.spaces != 0:
                 player.move(board, current_square.spaces)
@@ -331,6 +349,8 @@ class Square(Action):
 
 # Global function to do aphids
 def incrementAphids(player, nAphids):
+    if nAphids == 0:
+        return
     global TotalAphids
     global AphidStarvations
     #print("Requesting %i aphids. Total left: %i", nAphids)
@@ -351,12 +371,35 @@ def incrementAphids(player, nAphids):
         TotalAphids = 0
         AphidStarvations[-1] += 1
 
+def incrementMantis(player, nMantis):
+    if nMantis == 0:
+        return
+    global TotalMantis
+    global MantisStarvations
+    #print("Requesting %i mantis. Total left: %i", nMantis)
+    if TotalMantis >= nMantis:
+        # we need to make sure we only decrement down to 0
+        if nMantis < -1 * player.mantis:
+            TotalMantis += player.mantis
+            player.mantis = 0
+        else:
+            # Increment as normal
+            player.mantis += nMantis
+            TotalMantis -= nMantis
+    else:
+        # They are trying to take more mantises then there are. Just give them the rest.
+        if VERBOSE:
+            print("Someone wanted %i mantises, but there were only %i" % (nMantis, TotalMantis))
+        player.mantis += TotalMantis
+        TotalMantis = 0
+        MantisStarvations[-1] += 1
+
 class Card(Action):
     def __init__(self, aphids=0, mantis=0, spaces=0, moves=0):
         super().__init__(aphids, mantis, spaces, moves)
 
     def handle_draw(self, player, board):
-        player.mantis += self.mantis
+        incrementMantis(player, self.mantis)
         incrementAphids(player, self.aphids)
         player.moves_left += self.moves
         player.move(board, self.spaces)
