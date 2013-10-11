@@ -1,5 +1,5 @@
 
-import Data.List (intercalate, unfoldr)
+import Data.List (intercalate, unfoldr, foldl')
 import Data.Traversable (mapAccumL)
 import Debug.Trace
 import System.Environment
@@ -81,9 +81,48 @@ sumEdgeWeights p = foldl (\accum x -> accum + getWNode x) 0 p
 midExpander :: (StdGen, [Path]) -> (StdGen, [(Double, Path)])
 midExpander x = (fst x, map (\a -> (sumEdgeWeights a, a)) $ snd x)
 
+getCriticalPath :: [(Double, Path)] -> (Double, Path)
+getCriticalPath [] = (0, [])
+getCriticalPath (x:xs) = if ((fst x) > (fst (getCriticalPath xs))) then x else getCriticalPath xs
+--getCriticalPath x = x
+
+criticalMapper :: [Path] -> (Double, Path)
+criticalMapper plist = getCriticalPath $ map (\a -> (sumEdgeWeights a, a)) plist
+
+-- Runs a monteCarloExperiment runs times, and generates a list of the critical paths to be used for analysis
+monteCarloExperiment :: [Edge] -> Int -> Int -> [(Double, Path)]
+monteCarloExperiment edgeList seed runs = map criticalMapper $ take runs $ unfoldr (\gen -> justRTransform $ randomizePaths edgeList (getAllRoutes edgeList 1 5) gen) $ mkStdGen seed
+
+-- Turns a list of critical paths into the win-percentages
+-- the double in the input holds the length of the critical path
+winStatistics :: [Path] -> Int -> [(Double, Path)] -> [(Double, Path)]
+--winStatistics pathList runs crits = map (\x -> (((freq (map snd crits) x) / fromIntegral runs), x)) $ pathList
+winStatistics pathList runs crits = foldl' statAccum (zip (repeat 0.0) pathList) crits
+--(\accum x -> (((freq (map snd crits) x) / fromIntegral runs), x)) $ pathList
+
+-- Given a list/mapping of path to number of encounters, place the given path into the right 'state'
+statAccum :: [(Double, Path)] -> (Double, Path) -> [(Double, Path)]
+statAccum accum critpath = [ if pathsMatch (snd x) (snd critpath) then (fst x + 1.0, snd x) else x | x <- accum]
+-- the same list of paths, but with the path found having 1 incremented to its double
+
+freq :: [Path] -> Path -> Double
+freq list x = fromIntegral $ length [a | a <- list, pathsMatch a x]
+
+pathsMatch :: Path -> Path -> Bool
+pathsMatch (x:[]) (y:[])        = edgesMatch x y
+pathsMatch (x:xs:xss) (y:[])    = False
+pathsMatch (x:[]) (y:ys:yss)    = False
+pathsMatch (x:xs) (y:ys)        = (edgesMatch x y) && pathsMatch xs ys
+
+edgesMatch :: Edge -> Edge -> Bool
+edgesMatch x y = (getSNode x) == (getSNode y) && (getENode x) == (getENode y)
 -------------------------------------------------------------------------------
 ------------------------------------- IO --------------------------------------
+---------------------------------- & Monads -----------------------------------
 -------------------------------------------------------------------------------
+
+justRTransform :: (StdGen, [Path]) -> Maybe ([Path], StdGen)
+justRTransform (gen, rPath) = Just (rPath, gen)
 
 --showStartingEdges :: [Edge] -> IO
 showStartingEdges edgeList = do
@@ -101,17 +140,22 @@ showRouteFolding edgeList = do
 routeFoldingRandom edgeList gen = do
     mapM_ showPath $ snd $ midExpander $ randomizePaths edgeList (getAllRoutes edgeList 1 5) gen
 
+showMCE :: [Edge] -> Int -> Int -> IO()
 showMCE edgeList seed runs = do
     --mapM_ showPath $ snd $ monteCarloExperiment edgeList seed runs
-    putStrLn $ show $ monteCarloExperiment edgeList seed 1
+    mapM_ putStrLn $ map show $ monteCarloExperiment edgeList seed runs
 
--- Returns the last StdGen, and a zip of each path with its critical-win percentage
-monteCarloExperiment :: [Edge] -> Int -> Int -> [Path] -- [(Double, Path)]
-monteCarloExperiment edgeList seed runs = take runs $ unfoldr (\gen -> justRTransform $ randomizePaths edgeList (getAllRoutes edgeList 1 5)) $ mkStdGen seed
+showWinStatistics edgeList seed runs = mapM_ (showMsgPath "OUTPUT:\t") $ winStatistics (getAllRoutes edgeList 1 5) runs $ monteCarloExperiment edgeList seed runs
 
-justRTransform :: (StdGen, [Path]) -> Maybe ([Path], StdGen)
-justRTransform gen rPath = Just (rPath, gen)
+-- Print a message before showing the path
+showMsgPath :: String -> (Double, Path) -> IO()
+showMsgPath msg p = do
+    putStr msg
+    showPath p
 
+-- Show the path as:
+-- :a12,a23...:    Distance|WinPct
+showPath :: (Double, Path) -> IO()
 showPath path = do
     putStr ":"
     putStr $ intercalate "," $ map edgeStr $ snd path
@@ -131,5 +175,5 @@ main = do
     --showOneStep edgeList
     --showRouteFolding edgeList
     --routeFoldingRandom edgeList rGen
-    monteCarloExperiment edgeList seed runs
-    --putStrLn $ show $ take 20 $ infMonteCarlo
+    --showMCE edgeList seed runs
+    showWinStatistics edgeList seed runs
