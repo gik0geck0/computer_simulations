@@ -97,7 +97,7 @@ monteCarloExperiment edgeList seed runs = map criticalMapper $ take runs $ unfol
 -- the double in the input holds the length of the critical path
 winStatistics :: [Path] -> Int -> [(Double, Path)] -> [(Double, Path)]
 --winStatistics pathList runs crits = map (\x -> (((freq (map snd crits) x) / fromIntegral runs), x)) $ pathList
-winStatistics pathList runs crits = foldl' statAccum (zip (repeat 0.0) pathList) crits
+winStatistics pathList runs crits = foldl statAccum (zip (repeat 0.0) pathList) crits
 --(\accum x -> (((freq (map snd crits) x) / fromIntegral runs), x)) $ pathList
 
 -- Given a list/mapping of path to number of encounters, place the given path into the right 'state'
@@ -167,13 +167,23 @@ edgeStr edge = "a" ++ show (getSNode edge) ++ show (getENode edge)
 
 main = do
     args <- getArgs
-    datfile <- readFile $ args !! 0
-    let edgeList = processDatFile datfile
-        seed = read (args !! 1)
-        runs = read (args !! 2)
+    if args !! 0 == "F"
+        then
+        let datfile <- readFile $ args !! 3
+            edgeList = processDatFile datfile
+            seed = read (args !! 1)
+            runs = read (args !! 2)
+        in showWinStatistics edgeList seed runs
+    else if args !! 0 == "B"
+        then let
+            datfile = unlines ["1 2 3", "1 3 6", "1 4 13", "2 5 3", "2 3 9", "3 4 9", "3 6 7", "4 6 6", "5 6 3"]
+            edgeList = processDatFile datfile
+            seed = read (args !! 1)
+            runs = read (args !! 2)
+        in showWinStatistics edgeList seed runs
+    else putStrLn "Sorry, that simulation is not supported!"
     --showStartingEdges edgeList
     --showOneStep edgeList
     --showRouteFolding edgeList
     --routeFoldingRandom edgeList rGen
     --showMCE edgeList seed runs
-    showWinStatistics edgeList seed runs
