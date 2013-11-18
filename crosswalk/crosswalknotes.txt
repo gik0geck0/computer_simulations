@@ -1,0 +1,42 @@
+
+Crosswalk is a Next-Event Simulation
+
+Units
+1 residential block = 330ft
+
+Distance pedestrians must walk to the button: 3.5 blocks
+Distance cars drive to the stop-point: 3.5 blocks - 12 ft
+Distance pedestrians walk across the crosswalk: 48ft
+
+Speed of cars: uniform(25, 35) mph
+Speed of peds: uniform(6, 13) ft/s
+
+StopLight state: G,Y,R
+when ped pushes button,
+    Y = max(1s+now, 14s+last_green)
+when Y
+    R = Y + 8
+when R
+    G = R+12
+
+Arrivals (exponential)
+Autos: average 4 per minute per lane
+Peds: 4 per minute (total)
+
+walktime = 48/pedspeed = time for the pedestrian to cross the crosswalk
+when ped arrives at button:
+    if Y: walk at R
+    if R: if G-now >= walktime, walk.
+        else: --TODO
+    if G:
+        if alone, 2/3 check for press now
+            if not press, press at now+60s
+        if others, 1/n check for press now
+
+when car made:
+    atstopwalk at (3.5*330 - 12) / speed
+
+when car at stopwalk:
+    if G, leave sim at (3.5/330 + 24) / speed
+    if Y, atstopwalk at R   -- Do a single-event delay.
+    if R, leave sim at G
