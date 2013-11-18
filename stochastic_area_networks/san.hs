@@ -4,6 +4,7 @@ import Data.Traversable (mapAccumL)
 import Debug.Trace
 import System.Environment
 import System.Random
+import Text.Printf
 
 --            A -> B with edgeWeight
 type Edge = (Int, Int, Double)
@@ -91,14 +92,23 @@ criticalMapper plist = getCriticalPath $ map (\a -> (sumEdgeWeights a, a)) plist
 
 -- Runs a monteCarloExperiment runs times, and generates a list of the critical paths to be used for analysis
 monteCarloExperiment :: [Edge] -> Int -> Int -> [(Double, Path)]
-monteCarloExperiment edgeList seed runs = map criticalMapper $ take runs $ unfoldr (\gen -> justRTransform $ randomizePaths edgeList (getAllRoutes edgeList 1 5) gen) $ mkStdGen seed
+monteCarloExperiment edgeList seed runs = map criticalMapper $ take runs $ unfoldr (\gen -> justRTransform $ randomizePaths edgeList (getAllRoutes edgeList 1 (getEndNode edgeList)) gen) $ mkStdGen seed
 
 -- Turns a list of critical paths into the win-percentages
 -- the double in the input holds the length of the critical path
 winStatistics :: [Path] -> Int -> [(Double, Path)] -> [(Double, Path)]
---winStatistics pathList runs crits = map (\x -> (((freq (map snd crits) x) / fromIntegral runs), x)) $ pathList
-winStatistics pathList runs crits = foldl statAccum (zip (repeat 0.0) pathList) crits
+-- This one may not be memory-omptimal, but it does NOT stack overflow
+winStatistics pathList runs crits = map (\x -> (((freq (map snd crits) x) / fromIntegral runs), x)) $ pathList
+--
+--This implementation causes stack/hunk overflow
+--winStatistics pathList runs crits = foldl statAccum (zip (repeat 0.0) pathList) crits
 --(\accum x -> (((freq (map snd crits) x) / fromIntegral runs), x)) $ pathList
+
+makePercentages :: [(Double, Path)] -> [(Double, Path)]
+makePercentages stats = map (makePct $ sum $ map fst stats) stats
+
+makePct :: Double -> (Double, Path) -> (Double, Path)
+makePct total (count, path) = (count/total, path)
 
 -- Given a list/mapping of path to number of encounters, place the given path into the right 'state'
 statAccum :: [(Double, Path)] -> (Double, Path) -> [(Double, Path)]
@@ -145,7 +155,10 @@ showMCE edgeList seed runs = do
     --mapM_ showPath $ snd $ monteCarloExperiment edgeList seed runs
     mapM_ putStrLn $ map show $ monteCarloExperiment edgeList seed runs
 
-showWinStatistics edgeList seed runs = mapM_ (showMsgPath "OUTPUT:\t") $ winStatistics (getAllRoutes edgeList 1 5) runs $ monteCarloExperiment edgeList seed runs
+getEndNode :: [Edge] -> Int
+getEndNode edgeList = maximum $ map getENode edgeList
+
+showWinStatistics edgeList seed runs = mapM_ (showMsgPath "OUTPUT:\t") $ makePercentages $ winStatistics (getAllRoutes edgeList 1 (getEndNode edgeList)) runs $ monteCarloExperiment edgeList seed runs
 
 -- Print a message before showing the path
 showMsgPath :: String -> (Double, Path) -> IO()
@@ -160,7 +173,8 @@ showPath path = do
     putStr ":"
     putStr $ intercalate "," $ map edgeStr $ snd path
     putStr ":\t"
-    putStrLn $ show $ fst path
+    printf "%.3f\n" (fst path)
+    --putStrLn $ show $ fst path
 
 edgeStr :: Edge -> String
 edgeStr edge = "a" ++ show (getSNode edge) ++ show (getENode edge)
@@ -168,19 +182,21 @@ edgeStr edge = "a" ++ show (getSNode edge) ++ show (getENode edge)
 main = do
     args <- getArgs
     if args !! 0 == "F"
-        then
-        let datfile <- readFile $ args !! 3
+        then do
+        datfile <- readFile $ args !! 3
+        let
             edgeList = processDatFile datfile
             seed = read (args !! 1)
             runs = read (args !! 2)
-        in showWinStatistics edgeList seed runs
+        showWinStatistics edgeList seed runs
     else if args !! 0 == "B"
-        then let
+        then do
+        let
             datfile = unlines ["1 2 3", "1 3 6", "1 4 13", "2 5 3", "2 3 9", "3 4 9", "3 6 7", "4 6 6", "5 6 3"]
             edgeList = processDatFile datfile
             seed = read (args !! 1)
             runs = read (args !! 2)
-        in showWinStatistics edgeList seed runs
+        showWinStatistics edgeList seed runs
     else putStrLn "Sorry, that simulation is not supported!"
     --showStartingEdges edgeList
     --showOneStep edgeList

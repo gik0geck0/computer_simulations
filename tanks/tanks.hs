@@ -88,7 +88,6 @@ showGraphStats :: Double -> (Double, Stat, Stat, Stat, Stat) -> IO()
 showGraphStats n (count, (mlsa, mlsv), (mmsa, mmsv), (gapsa, gapsv), (mvuea, mvuev)) = do
     printf "%.3f \t%.3f \t%.3f\t%.3f \t%.3f \t%.3f \t%.3f \t%.3f \t%.3f \t%.3f \t%.3f \t%.3f\n" n mlsa (1.96*mlsv) n mmsa (1.96*mmsv) n gapsa (1.96*gapsv) n mvuea (1.96*mvuev)
 
-main :: IO()
 main = do
     args <- getArgs
     if (args !! 0) == "T"
