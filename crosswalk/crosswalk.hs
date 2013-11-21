@@ -34,18 +34,141 @@ type Pool = [PoolItem]
 --                                                      TODO: Why do I need the ID? Will be set to 0 until I figure that out
 --
 --                                                      Aside: Do I need a pool for cars as well???
-type SystemState = ([Event], Maybe Event, [Event], LehmerState, Pool)
-type JustSystemState = ([Event], Event, [Event], LehmerState, Pool)
+type SystemState = ([Event], Maybe Event, [Event], LehmerState, Pool, StatState)
+type JustSystemState = ([Event], Event, [Event], LehmerState, Pool, StatState)
+
+--------
+-- Stat Storing
+--------
+
+-- I need...
+-- The number of pedestrians in the simulation
+-- The number of autos in the simulation
+-- The total duration of the simulation (how many minutes, greater than TIME, of simulated time there were)
+-- The minimum, average, (sample) standard deviation, and maximum wait time for pedestrians.
+-- The minimum, average, (sample) standard deviation, and maximum wait time for automobiles.
+--
+-- Additionally, your simulation will create a text file named acwait.dat.
+--  The acwait.dat file will contain two columns of numerical data. The
+--  first column will be for pedestrian wait time autocorrelation, the second
+--  column is for the wait time autocorrelation of the autos. The file should
+--  be written such that the row implicitely represents the lag value. Row 1
+--  should have the r1 autocorrelation for pedestrians and autos in columns 1 and
+--  two. Row 2 should have the r2 correlations, row 3 the r3 correlations, and so on and so forth.
+--  Autocorrelations up to r20 should be reported in acwait.dat.
+
+-- Simple includes (min, max, avg, stdev, count)
+type SimpleStat = (Double, Double, Double, Double, Int)
+-- Pop has number in simulation (ped, car)
+type PopStat = (Int, Int)
+--              Auto Correlation involves a (running autoCoVariance, lag size)  -- These NEED to be updated each time the lag-history changes
+type AutoCoVarStat = Double -- One per lag
+type LagHistory = [Double] -- Front of the list represents the most recent point (lag=0)
+
+--               (CurrentStats for Lags, Current CoVar)
+type HistoryModule = ([SimpleStat], [AutoCoVarStat])
+
+--               (Ped Avg   , Car Avg   , Pop    , PedAutoCoVar , CarAutoCoVar )
+type StatState = (SimpleStat, SimpleStat, PopStat, HistoryModule, HistoryModule)
+
+initStatState :: StatState
+initStatState = (
+    (999999, 0, 0, 0, 0),
+    (999999, 0, 0, 0, 0),
+    (0, 0),
+    ([(999999, 0, 0, 0, 0)], [0]),
+    ([(999999, 0, 0, 0, 0)], [0]) )
+
+--------
+--Stat Functions
+--------
+
+addSystemPed :: StatState -> StatState
+addSystemPed (a,b, (npeds, ncars), c, d) = (a,b, (npeds+1, ncars), c, d)
+
+removeSystemPed :: StatState -> StatState
+removeSystemPed (a,b, (npeds, ncars), c, d) = (a,b, (npeds-1, ncars), c, d)
+
+addSystemCar :: StatState -> StatState
+addSystemCar (a,b, (npeds, ncars), c, d) = (a,b, (npeds, ncars+1), c, d)
+
+removeSystemCar :: StatState -> StatState
+removeSystemCar (a,b, (npeds, ncars), c, d) = (a,b, (npeds, ncars-1), c, d)
+
+addSimple :: Double -> SimpleStat -> SimpleStat
+addSimple pt (min, max, avg, var, n) =
+    let newcount = n+1
+        newavg = welfordAvg avg (n+1) pt
+        newstdev = welfordVar var avg newcount pt
+    in
+    (
+        if pt < min then pt else min,
+        if pt > max then pt else max,
+        newavg,
+        newstdev,
+        newcount
+    )
+
+addStatSystemPedPoint :: Double -> StatState -> StatState
+addStatSystemPedPoint pt (simpleped, simplecar, pop, pedhist, carhist) =
+    let newsimpleped = addSimple pt simpleped
+    in (
+        newsimpleped,
+        simplecar,
+        pop,
+        addToHist newsimpleped pedhist,
+        carhist
+    )
+
+addStatSystemCarPoint :: Double -> StatState -> StatState
+addStatSystemCarPoint pt (simpleped, simplecar, pop, pedhist, carhist) =
+    let newsimplecar = addSimple pt simplecar
+    in (
+        simpleped,
+        newsimplecar,
+        pop,
+        pedhist,
+        addToHist newsimplecar carhist
+    )
+
+addToHist :: SimpleStat -> HistoryModule -> HistoryModule
+addToHist newstat (stats, coVars) =
+    if length stats < 20 then (newstat:stats, (calculateCoVar (head coVars) newstat):coVars)
+    else (newstat:(init stats),
+        (calculateCoVar (head coVars) newstat):(init coVars)
+    )
+
+calculateCoVar :: AutoCoVarStat -> SimpleStat -> AutoCoVarStat
+calculateCoVar oldCoVar (_,_, avg, var, newcount) = oldCoVar
+
+--------
+-- Welford Equations
+--------
+welfordAvg :: Double -> Int -> Double -> Double
+welfordAvg lastAvg newCount nextVal = lastAvg + (nextVal - lastAvg) / fromIntegral newCount
+
+welfordVar :: Double -> Double -> Int -> Double -> Double
+welfordVar _ _ 0 nextVal = 0
+welfordVar _ _ 1 nextVal = 0
+welfordVar lastVar lastAvg newCount nextVal = lastVar + ((fromIntegral newCount-1)/fromIntegral newCount) * ((nextVal - lastAvg)**2)
+
+getWelford :: SimpleStat -> Double
+getWelford (_, _, avg, _, n) = avg/ fromIntegral n
+
+
+--------
+-- Maybe Hacks and Other Small things
+--------
 
 justStateToMaybe :: JustSystemState -> SystemState
-justStateToMaybe (past, current, future, rgen, pedpool) = (past, Just current, future, rgen, pedpool)
+justStateToMaybe (past, current, future, rgen, pedpool, stats) = (past, Just current, future, rgen, pedpool, stats)
 
 maybeStateToJust :: SystemState -> JustSystemState
-maybeStateToJust (past, current, future, rgen, pedpool) = (past, (fromMaybe (Event CheckPool 0 Nothing) current), future, rgen, pedpool)
+maybeStateToJust (past, current, future, rgen, pedpool, stats) = (past, (fromMaybe (Event CheckPool 0 Nothing) current), future, rgen, pedpool, stats)
 -- the current event must be a maybe. WHEN current=Nothing, the simulation must be over. There are no more events
 
 getPast :: SystemState -> [Event]
-getPast (past, _, _, _, _) = past
+getPast (past,_,_,_,_,_) = past
 
 --------
 -- Tuple Helpers
@@ -63,12 +186,24 @@ tupleAppend c (a,b) = (a,b,c)
 dupleCombine :: (a,b) -> (c,d) -> (a,b,c,d)
 dupleCombine (a,b) (c,d) = (a,b,c,d)
 
+addPairToPair :: (c,d) -> (a,b) -> (a,b,c,d)
+addPairToPair (c,d) (a,b) = (a,b,c,d)
+
 pairAddTriplet :: (a,b) -> (c,d,e) -> (a,b,c,d,e)
 pairAddTriplet (a,b) (c,d,e) = (a,b,c,d,e)
+
+pairAddQuad :: (a,b) -> (c,d,e,f) -> (a,b,c,d,e,f)
+pairAddQuad (a,b) (c,d,e,f) = (a,b,c,d,e,f)
 
 -- Create a quintuple from a quad by adding an item to the end
 addToQuad :: e -> (a,b,c,d) -> (a,b,c,d,e)
 addToQuad e (a,b,c,d) = (a,b,c,d,e)
+
+addPairToQuad :: (e,f) -> (a,b,c,d) -> (a,b,c,d,e,f)
+addPairToQuad (e,f) (a,b,c,d) = (a,b,c,d,e,f)
+
+startQuadWithPair :: (a,b) -> (c,d,e,f) -> (a,b,c,d,e,f)
+startQuadWithPair (a,b) (c,d,e,f) = (a,b,c,d,e,f)
 
 --------
 -- List Helpers
@@ -102,8 +237,8 @@ nextState :: Double -> JustSystemState -> SystemState
 nextState endTime = (stripOutOfTime endTime) . rotateEvents . processEvent
 
 stripOutOfTime :: Double -> SystemState -> SystemState
-stripOutOfTime endTime (past, current, [], rgen, pedpool) = (past, current, [], rgen, pedpool)
-stripOutOfTime endTime (past, current, future, rgen, pedpool) = (past, current, filter (\e-> not $ time e > endTime && eventType e `elem` [LSpawnCar, RSpawnCar, SpawnPed]) future, rgen, pedpool)
+stripOutOfTime endTime (past, current, [], rgen, pedpool, stats) = (past, current, [], rgen, pedpool, stats)
+stripOutOfTime endTime (past, current, future, rgen, pedpool, stats) = (past, current, filter (\e-> not $ time e > endTime && eventType e `elem` [LSpawnCar, RSpawnCar, SpawnPed]) future, rgen, pedpool, stats)
 
 getNextEvent :: [Event] -> (Event, [Event])
 getNextEvent elist = (head elist, tail elist)
@@ -113,8 +248,8 @@ rotateEvents :: JustSystemState -> SystemState
 --    | trace ("Moving this event into the past: " ++ show current) False = undefined
 --    | trace ("Future is: " ++ (show future)) False = undefined
 --    | trace ("Advancing simulation time to " ++ (show $ time current)) False = undefined
-rotateEvents (past, current, [], rgen, pedpool) = (smartInsert past current, Nothing, [], rgen, pedpool)
-rotateEvents (past, current, future, rgen, pedpool) = (smartInsert past current, Just (head future), tail future, rgen, pedpool)
+rotateEvents (past, current, [], rgen, pedpool, stats) = (smartInsert past current, Nothing, [], rgen, pedpool, stats)
+rotateEvents (past, current, future, rgen, pedpool, stats) = (smartInsert past current, Just (head future), tail future, rgen, pedpool, stats)
 
 applyRandom :: [Event] -> EventType -> (Maybe Double, Double, LehmerState) -> ([Event], LehmerState)
 -- applyRandom future etype (speed, timeval, rgen)
@@ -122,7 +257,7 @@ applyRandom :: [Event] -> EventType -> (Maybe Double, Double, LehmerState) -> ([
 applyRandom future etype (speed, timeval, rgen) = (sortedInsertion future (Event etype timeval speed), rgen)
 
 addCheckPool :: JustSystemState -> JustSystemState
-addCheckPool (past, current, future, rgen, pedpool) = (past, current, sortedInsertion future (Event CheckPool (time current + 60) Nothing), rgen, pedpool)
+addCheckPool (past, current, future, rgen, pedpool, stats) = (past, current, sortedInsertion future (Event CheckPool (time current + 60) Nothing), rgen, pedpool, stats)
 
 -- Find the first occurance of a Green Light
 getFirstEvent :: EventType -> [Event] -> Event
@@ -211,8 +346,15 @@ addRCarSpawn :: Double -> ([Event], LehmerState) -> ([Event], LehmerState)
 addRCarSpawn now (elist, rgen) = applyRandom elist RSpawnCar $ carSpeedTransformComing now $ randomRCarSpawn rgen -- randomCarSpawn rgen
 
 -- Push the button now if u[0,1) < probability
-maybePushButton :: Double -> (Event, [Event], LehmerState, Pool) -> ([Event], LehmerState, Pool)
-maybePushButton probability (current, future, rgen, pedpool) = tupleAppend pedpool $ randomButtonPressNow probability (current, future, rgen)
+maybePushButton :: Double -> (Event, [Event], LehmerState, Pool, StatState) -> ([Event], LehmerState, Pool, StatState)
+maybePushButton probability (current, future, rgen, pedpool, stats) = addPairToPair (pedpool, stats) $ randomButtonPressNow probability (current, future, rgen)
+
+-- Have everyone in the pedestrian pool walk across the crosswalk
+dumpPool :: Double -> [(Int, Double)] -> [Event] -> [Event]
+dumpPool now pool elist = foldl (poolFold now) elist pool
+
+poolFold :: Double -> [Event] -> (Int, Double) -> [Event]
+poolFold now accum poolitem = sortedInsertion accum (Event PedWalkEnd (now + 48.0/snd poolitem) (Just (snd poolitem)))
 
 --------
 -- Event Processing and Simulation Components
@@ -220,63 +362,63 @@ maybePushButton probability (current, future, rgen, pedpool) = tupleAppend pedpo
 
 -- Takes the current event, and returns the future-list of Events (where the head is the next event)
 processEvent :: JustSystemState -> JustSystemState
-processEvent (past, current, future, rgen, pedpool) =
+processEvent (past, current, future, rgen, pedpool, stats) =
     case eventType current of
                     -- TODO: When Red, I should probably be emptying the pool
                     -- TODO: I probably want to strip out any CheckPool events from the future, since a person in the past may now be moving on
-        Red     -> (past, current, sortedInsertion future (Event Green (time current + 12) Nothing), rgen, pedpool)
-        Yellow  -> (past, current, sortedInsertion future (Event Red (time current + 8) Nothing), rgen, pedpool)
-        Green   -> (past, current, future, rgen, pedpool) -- "Let the cars go" -- That would entail emptying a carpool...?
+        Red     -> (past, current, filter (\x-> eventType x /= CheckPool) $ dumpPool (time current) pedpool $ sortedInsertion future (Event Green (time current + 12) Nothing), rgen, [], stats)
+        Yellow  -> (past, current, sortedInsertion future (Event Red (time current + 8) Nothing), rgen, pedpool, stats)
+        Green   -> (past, current, future, rgen, pedpool, stats) -- "Let the cars go" -- That would entail emptying a carpool...?
         PedAtButton ->
             let lightstat   = head $ filter (\x -> x == Green || x == Yellow || x == Red) $ map eventType past
                 in case lightstat of
-                    Yellow  -> (past, current, sortedInsertion future (Event PedWalkEnd (time $ head $ filter (\x -> eventType x == Red) future) (speed current)), rgen, pedpool)
+                    Yellow  -> (past, current, sortedInsertion future (Event PedWalkEnd (time $ head $ filter (\x -> eventType x == Red) future) (speed current)), rgen, pedpool, stats)
                             -- If The time of the next Green - now >= time to cross (If there's time to cross)
                     Red     -> if (time $ head $ filter (\x -> eventType x == Green) future) - time current >= (48.0 / fromMaybe 0 (speed current))
-                                    then (past, current, sortedInsertion future (Event PedWalkEnd (48.0 / fromMaybe 0 (speed current)) (speed current)), rgen, pedpool)
+                                    then (past, current, sortedInsertion future (Event PedWalkEnd ((time current) + 48.0 / fromMaybe 0 (speed current)) (speed current)), rgen, pedpool, stats)
                                     -- There was not enough time to cross. Wait around in the pool
-                                    else addCheckPool (past, current, future, rgen, (0, fromMaybe 0 (speed current)):pedpool)
+                                    else addCheckPool (past, current, future, rgen, (0, fromMaybe 0 (speed current)):pedpool, stats)
                             -- Is he/she alone?
                     Green   ->  if length pedpool == 0
                                     -- There's a 2/3 chance that they'll push the button immediately
-                                    then pairAddTriplet (past, current) $ maybePushButton (2/3) (current, future, rgen, (0, fromMaybe 0 $ speed current):pedpool)
+                                    then pairAddQuad (past, current) $ maybePushButton (2/3) (current, future, rgen, (0, fromMaybe 0 $ speed current):pedpool, stats)
                                 else
                                     -- If others are around, probability to push button immediately is 1/n
                                     -- TODO: Does 1/n INCLUDE the new pedestrian? Or not. Currently, it assumes not. do 1/ n+1 if it does
-                                    pairAddTriplet (past, current) $ maybePushButton (1.0/ fromIntegral (length pedpool)) (current, future, rgen, (0, fromMaybe 0 $ speed current):pedpool)
-                    _       -> (past, current, future, rgen, pedpool) -- TODO: Should I add a trace here, to indicate that this is going on?
+                                    startQuadWithPair (past, current) $ maybePushButton (1.0/ fromIntegral (length pedpool)) (current, future, rgen, (0, fromMaybe 0 $ speed current):pedpool, stats)
+                    _       -> (past, current, future, rgen, pedpool, stats) -- TODO: Should I add a trace here, to indicate that this is going on?
         -- TODO: Check time current, and prevent any spawning if it's greater than the proposed simulation end time
-        SpawnPed -> addToQuad pedpool $ dupleCombine (past, current) $ addPedSpawn (time current) $ applyRandom future PedAtButton $ pedSpeedTransformComing (time current) $ randomPedSpeed rgen
-        LSpawnCar -> addToQuad pedpool $ dupleCombine (past, current) $ addLCarSpawn (time current) $ applyRandom future LCarStop $ carSpeedTransformComing (time current) $ randomLCarSpeed rgen
-        RSpawnCar -> addToQuad pedpool $ dupleCombine (past, current) $ addRCarSpawn (time current) $ applyRandom future RCarStop $ carSpeedTransformComing (time current) $ randomRCarSpeed rgen
+        SpawnPed -> addPairToQuad (pedpool, stats) $ dupleCombine (past, current) $ addPedSpawn (time current) $ applyRandom future PedAtButton $ pedSpeedTransformComing (time current) $ randomPedSpeed rgen
+        LSpawnCar -> addPairToQuad (pedpool, stats) $ dupleCombine (past, current) $ addLCarSpawn (time current) $ applyRandom future LCarStop $ carSpeedTransformComing (time current) $ randomLCarSpeed rgen
+        RSpawnCar -> addPairToQuad (pedpool, stats) $ dupleCombine (past, current) $ addRCarSpawn (time current) $ applyRandom future RCarStop $ carSpeedTransformComing (time current) $ randomRCarSpeed rgen
         LCarStop ->
             let lightstat   = head $ filter (\x -> x == Green || x == Yellow || x == Red) $ map eventType past
                 in case lightstat of
-                    Green   -> (past, current, sortedInsertion future $ carSpeedTransformGoing (time current) LCarLeave $ speed current, rgen, pedpool) -- Schedule CarLeave
+                    Green   -> (past, current, sortedInsertion future $ carSpeedTransformGoing (time current) LCarLeave $ speed current, rgen, pedpool, stats) -- Schedule CarLeave
                     Yellow  -> if (time $ getFirstEvent Red future) - time current >= (fromMaybe 0 $ speed current) / 48
-                                    then (past, current, sortedInsertion future $ carSpeedTransformGoing (time current) LCarLeave $ speed current, rgen, pedpool)
-                               else (past, current, sortedInsertion future $ Event LCarStop (time $ getFirstEvent Red future) (speed current), rgen, pedpool)
+                                    then (past, current, sortedInsertion future $ carSpeedTransformGoing (time current) LCarLeave $ speed current, rgen, pedpool, stats)
+                               else (past, current, sortedInsertion future $ Event LCarStop (time $ getFirstEvent Red future) (speed current), rgen, pedpool, stats)
                                -- else stop. TODO: carpool??? We don't know when the Green will hit
                                    -- TODO: Hack: reschedule the car to stop (again) when the RED happens. THEEEENNN it'll get scheduled after the Green
-                    Red     -> (past, current, sortedInsertion future $ addTimeToEvent ((time $ getFirstEvent Green future) - (time current)) $ carSpeedTransformGoing (time current) LCarLeave $ speed current, rgen, pedpool)
+                    Red     -> (past, current, sortedInsertion future $ addTimeToEvent ((time $ getFirstEvent Green future) - (time current)) $ carSpeedTransformGoing (time current) LCarLeave $ speed current, rgen, pedpool, stats)
                                 -- Leave when the green comes up. We know when that is, so schedule a CarLeave
-                    _       -> (past, current, future, rgen, pedpool) -- Do.. nothing... I guess... TODO: trace?
+                    _       -> (past, current, future, rgen, pedpool, stats) -- Do.. nothing... I guess... TODO: trace?
         RCarStop ->
             let lightstat   = head $ filter (\x -> x == Green || x == Yellow || x == Red) $ map eventType past
                 in case lightstat of
-                    Green   -> (past, current, sortedInsertion future $ carSpeedTransformGoing (time current) RCarLeave $ speed current, rgen, pedpool) -- Schedule CarLeave
+                    Green   -> (past, current, sortedInsertion future $ carSpeedTransformGoing (time current) RCarLeave $ speed current, rgen, pedpool, stats) -- Schedule CarLeave
                     Yellow  -> if (time $ getFirstEvent Red future) - time current >= (fromMaybe 0 $ speed current) / 48
-                                    then (past, current, sortedInsertion future $ carSpeedTransformGoing (time current) RCarLeave $ speed current, rgen, pedpool)
-                               else (past, current, sortedInsertion future $ Event RCarStop (time $ getFirstEvent Red future) (speed current), rgen, pedpool)
+                                    then (past, current, sortedInsertion future $ carSpeedTransformGoing (time current) RCarLeave $ speed current, rgen, pedpool, stats)
+                               else (past, current, sortedInsertion future $ Event RCarStop (time $ getFirstEvent Red future) (speed current), rgen, pedpool, stats)
                                -- else stop. TODO: carpool??? We don't know when the Green will hit
                                    -- TODO: Hack: reschedule the car to stop (again) when the RED happens. THEEEENNN it'll get scheduled after the Green
-                    Red     -> (past, current, sortedInsertion future $ addTimeToEvent ((time $ getFirstEvent Green future) - (time current)) $ carSpeedTransformGoing (time current) RCarLeave $ speed current, rgen, pedpool)
-                    _       -> (past, current, future, rgen, pedpool) -- Do.. nothing... I guess... TODO: trace?
-        PedPushButton -> (past, current, sortedInsertion future (Event Yellow (max (time current + 1) (time $ getFirstEvent Green past)) Nothing), rgen, pedpool)
-        CheckPool -> if length pedpool > 0 then (past, current, sortedInsertion future (Event PedPushButton (time current) Nothing), rgen, pedpool) else (past, current, future, rgen, pedpool)
-        PedWalkEnd -> (past, current, future, rgen, pedpool) -- A Pedestrian is leaving. We will do nothing in particular
-        LCarLeave -> (past, current, future, rgen, pedpool)  -- A Car is leaving. We will do nothing in particular
-        RCarLeave -> (past, current, future, rgen, pedpool)  -- A Car is leaving. We will do nothing in particular
+                    Red     -> (past, current, sortedInsertion future $ addTimeToEvent ((time $ getFirstEvent Green future) - (time current)) $ carSpeedTransformGoing (time current) RCarLeave $ speed current, rgen, pedpool, stats)
+                    _       -> (past, current, future, rgen, pedpool, stats) -- Do.. nothing... I guess... TODO: trace?
+        PedPushButton -> (past, current, sortedInsertion future (Event Yellow (max (time current + 1) (time $ getFirstEvent Green past)) Nothing), rgen, pedpool, stats)
+        CheckPool -> if length pedpool > 0 then (past, current, sortedInsertion future (Event PedPushButton (time current) Nothing), rgen, pedpool, stats) else (past, current, future, rgen, pedpool, stats)
+        PedWalkEnd -> (past, current, future, rgen, pedpool, stats) -- A Pedestrian is leaving. We will do nothing in particular
+        LCarLeave -> (past, current, future, rgen, pedpool, stats)  -- A Car is leaving. We will do nothing in particular
+        RCarLeave -> (past, current, future, rgen, pedpool, stats)  -- A Car is leaving. We will do nothing in particular
         -- Hopefully, this catch-all will never happen... hopefully...
         -- _ -> (past, current, future, rgen, pedpool)
 
@@ -303,16 +445,16 @@ assert False x = error "Failed Assertion!"
 assert _ x = x
 
 startState :: Int -> JustSystemState
-startState seed = ([], Event SpawnPed 0 Nothing, [Event LSpawnCar 0 Nothing, Event RSpawnCar 0 Nothing, Event Green 0 Nothing], lehmerInit seed, [])
+startState seed = ([], Event SpawnPed 0 Nothing, [Event LSpawnCar 0 Nothing, Event RSpawnCar 0 Nothing, Event Green 0 Nothing], lehmerInit seed, [], initStatState)
 
 singleSpawnPed :: Int -> JustSystemState
-singleSpawnPed seed = ([], Event SpawnPed 0 Nothing, [], lehmerInit seed, [])
+singleSpawnPed seed = ([], Event SpawnPed 0 Nothing, [], lehmerInit seed, [], initStatState)
 
 singleSpawnLCar :: Int -> JustSystemState
-singleSpawnLCar seed = ([], Event LSpawnCar 0 Nothing, [], lehmerInit seed, [])
+singleSpawnLCar seed = ([], Event LSpawnCar 0 Nothing, [], lehmerInit seed, [], initStatState)
 
 singleSpawnRCar :: Int -> JustSystemState
-singleSpawnRCar seed = ([], Event RSpawnCar 0 Nothing, [], lehmerInit seed, [])
+singleSpawnRCar seed = ([], Event RSpawnCar 0 Nothing, [], lehmerInit seed, [], initStatState)
 
 --------
 -- Testing Functions
@@ -334,7 +476,7 @@ identityTrace a
 -- Longest time it will take for a single pedestrian to reach the button is 192s
 testSinglePed :: Int -> String
 testSinglePed seed =
-    let singlePed@(past, current, future, rgen, pedpool) = nextState 193 $ singleSpawnPed seed
+    let singlePed@(past, current, future, rgen, pedpool, stats) = nextState 193 $ singleSpawnPed seed
         in if length past /= 1 then "Did not process first event in testSinglePed"
             else if not (checkEventContainment PedAtButton 193 (maybeCons current future)) then "Expected a PedAtButton to be scheduled within 193 seconds, but future was " ++ (show future)
             else if length future /= 1 then "The next pedestrian spawn was not created. Here's the future-list: " ++ show future
@@ -343,7 +485,7 @@ testSinglePed seed =
 -- Longest time it will take a car to reach the crosswalkstop is 31.17s
 testSingleLCar :: Int -> String
 testSingleLCar seed =
-    let singleLCar@(past, current, future, rgen, pedpool) = nextState 32 $ singleSpawnLCar seed
+    let singleLCar@(past, current, future, rgen, pedpool, stats) = nextState 32 $ singleSpawnLCar seed
         in if length past /= 1 then "Did not process first event in testSingleRCar"
             else if not (checkEventContainment LCarStop 32.0 (maybeCons current future)) then "Expected an LCarStop to be scheduled within 32 seconds, but future was " ++ (show future)
             else if length future /= 1 then "The next pedestrian spawn was not created. Here's the future-list: " ++ show future
@@ -352,16 +494,16 @@ testSingleLCar seed =
 -- Longest time it will take a car to reach the crosswalkstop is 31.17s
 testSingleRCar :: Int -> String
 testSingleRCar seed =
-    let singleRCar@(past, current, future, rgen, pedpool) = nextState 32 $ singleSpawnRCar seed
+    let singleRCar@(past, current, future, rgen, pedpool, stats) = nextState 32 $ singleSpawnRCar seed
         in if length past /= 1 then "Did not process first event in testSingleRCar"
             else if not (checkEventContainment RCarStop 32.0 (maybeCons current future)) then "Expected an RCarStop to be scheduled within 32 seconds, but future was " ++ (show future)
             else if length future /= 1 then "The next pedestrian spawn was not created. Here's the future-list: " ++ show future
             else "No errors with testSingleRCar. The first car will arrive at the crosswalk at " ++ show (time (fromMaybe (head future) current))
 
 iterateUntilNoTomorrow :: Double -> SystemState -> SystemState
-iterateUntilNoTomorrow endtime start@(past, current, future, rgen, pedpool)
+iterateUntilNoTomorrow endtime start@(past, current, future, rgen, pedpool, stats)
 -- Only stop when there's no future, and we have no current event to process
-    | (isNothing current) && length future == 0 = (past, Nothing, future, rgen, pedpool)
+    | (isNothing current) && length future == 0 = (past, Nothing, future, rgen, pedpool, stats)
     | True                  = iterateUntilNoTomorrow endtime $ nextState endtime (maybeStateToJust start)
 
 validateDecreasing :: (Ord a) => [a] -> Bool
@@ -373,6 +515,9 @@ validateIncreasing :: (Ord a) => [a] -> Bool
 validateIncreasing [] = True
 validateIncreasing (a:b:[]) = a <= b
 validateIncreasing (a:b:rest) = (a <= b) && validateIncreasing (b:rest)
+
+-- Make sure the number of pedestrians and cars spawned equals the number that left
+-- validateEnterLeave
 
 testInsertionSort :: String
 testInsertionSort = let sorted = fullInsertionSort [3,4,1,6,9,3,1,4]
