@@ -458,24 +458,9 @@ processEvent (past, current, future, rgen, pedpool, carpool, stats) =
         -- Hopefully, this catch-all will never happen... hopefully...
         -- _ -> (past, current, future, rgen, pedpool)
 
--- Gather up an event list (so that we can get statistics from it)
---simulationStepper :: Double -> JustSystemState -> Maybe (SystemState, Event)
---simulationStepper endTime s@(past, current, future, rgen, pedpool) =
---    if length future > 0
---        then Just ((nextState endTime s), current)
---    else Nothing
-
---    if event_type current == Red then
---        sortedInsertion future (Event Green (time current + 12))
---    else if event_type current ==
-
--- TODO: Should a Monad be used??
--- Monad stuffs. The StateMonad makes the folding quite nice
---type SystemStateMonad = State SystemState
---
---nextEventM :: SystemState -> SystemStateMonad SystemState
---nextEventM s = return $ nextState s
-
+--------
+-- Iteration Functions and Helpers
+--------
 assert :: Bool -> a -> a
 assert False x = error "Failed Assertion!"
 assert _ x = x
@@ -491,6 +476,12 @@ singleSpawnLCar seed = ([], Event LSpawnCar 0 Nothing, [], lehmerInit seed, [], 
 
 singleSpawnRCar :: Int -> JustSystemState
 singleSpawnRCar seed = ([], Event RSpawnCar 0 Nothing, [], lehmerInit seed, [], [], initStatState)
+
+iterateUntilNoTomorrow :: Double -> SystemState -> SystemState
+iterateUntilNoTomorrow endtime start@(past, current, future, rgen, pedpool, carpool, stats)
+-- Only stop when there's no future, we have no current event to process, and there's nothing in the pools
+    | (isNothing current) && length future == 0 && length pedpool == 0 && length carpool == 0 = (past, Nothing, future, rgen, pedpool, carpool, stats)
+    | True                  = iterateUntilNoTomorrow endtime $ nextState endtime (maybeStateToJust start)
 
 --------
 -- Testing Functions
@@ -536,12 +527,6 @@ testSingleRCar seed =
             else if length future /= 1 then "The next pedestrian spawn was not created. Here's the future-list: " ++ show future
             else "No errors with testSingleRCar. The first car will arrive at the crosswalk at " ++ show (time (fromMaybe (head future) current))
 
-iterateUntilNoTomorrow :: Double -> SystemState -> SystemState
-iterateUntilNoTomorrow endtime start@(past, current, future, rgen, pedpool, carpool, stats)
--- Only stop when there's no future, and we have no current event to process
-    | (isNothing current) && length future == 0 = (past, Nothing, future, rgen, pedpool, carpool, stats)
-    | True                  = iterateUntilNoTomorrow endtime $ nextState endtime (maybeStateToJust start)
-
 validateDecreasing :: (Ord a) => [a] -> Bool
 validateDecreasing [] = True
 validateDecreasing (a:b:[]) = a >= b
@@ -560,6 +545,13 @@ testInsertionSort = let sorted = fullInsertionSort [3,4,1,6,9,3,1,4]
                         in if sorted == [1,1,3,3,4,4,6,9]
                             then "True"
                         else ("Expected " ++ (show [1,1,3,3,4,4,6,9]) ++ " but got " ++ (show sorted))
+
+writeAcWait :: HistoryModule -> HistoryModule -> IO()
+writeAcWait (pedSimples, pedCoVars) (carSimples, carCoVars) = do
+    writeFile "acwait.dat" $ unlines $ map formatCoVars $ zip pedCoVars carCoVars
+
+formatCoVars :: (Double, Double) -> String
+formatCoVars (pedCoVar, carCoVar) = (show pedCoVar) ++ "\t" ++ (show carCoVar)
 
 main = do
     args <- getArgs
@@ -600,3 +592,4 @@ main = do
                             else putStrLn "No remaining cars. Thats good"
                             -- Show the final statistics
                             printf "Pedestrian Simple Stats: min=%f max=%f avg=%f stdev=%f count=%i" pedmin pedmax (pedavg/fromIntegral pedcount) (sqrt(pedrawvar/fromIntegral pedcount)) pedcount
+                            writeAcWait pedCoVars carCoVars
