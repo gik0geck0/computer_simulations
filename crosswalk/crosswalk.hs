@@ -377,8 +377,8 @@ processEvent (past, current, future, rgen, pedpool, stats) =
                 in case lightstat of
                     Yellow  -> (past, current, sortedInsertion future (Event PedWalkEnd (time $ head $ filter (\x -> eventType x == Red) future) (speed current)), rgen, pedpool, addStatSystemPedPoint ((time $ head $ filter (\x -> eventType x == Red) future)-time current) stats)
                             -- If The time of the next Green - now >= time to cross (If there's time to cross)
-                    Red     -> if (time $ head $ filter (\x -> eventType x == Green) future) - time current >= (48.0 / fromMaybe 0 (speed current))
-                                    then (past, current, sortedInsertion future (Event PedWalkEnd ((time current) + 48.0 / fromMaybe 0 (speed current)) (speed current)), rgen, pedpool, stats)
+                    Red     -> if (time $ head $ filter (\x -> eventType x == Green) future) - time current >= (48.0 / fromMaybe 0 (speed current))                                     -- NOTE: This add-0 is important. This pedestrian has waited 0 seconds
+                                    then (past, current, sortedInsertion future (Event PedWalkEnd ((time current) + 48.0 / fromMaybe 0 (speed current)) (speed current)), rgen, pedpool, addStatSystemPedPoint 0 stats)
                                     -- There was not enough time to cross. Wait around in the pool
                                     else addCheckPool (past, current, future, rgen, (time current, fromMaybe 0 (speed current)):pedpool, stats)
                             -- Is he/she alone?
@@ -397,25 +397,27 @@ processEvent (past, current, future, rgen, pedpool, stats) =
         LCarStop ->
             let lightstat   = head $ filter (\x -> x == Green || x == Yellow || x == Red) $ map eventType past
                 in case lightstat of
-                    Green   -> (past, current, sortedInsertion future $ carSpeedTransformGoing (time current) LCarLeave $ speed current, rgen, pedpool, stats) -- Schedule CarLeave
+                    Green   -> (past, current, sortedInsertion future $ carSpeedTransformGoing (time current) LCarLeave $ speed current, rgen, pedpool, addStatSystemCarPoint 0 stats) -- Schedule CarLeave
                     Yellow  -> if (time $ getFirstEvent Red future) - time current >= (fromMaybe 0 $ speed current) / 48
-                                    then (past, current, sortedInsertion future $ carSpeedTransformGoing (time current) LCarLeave $ speed current, rgen, pedpool, stats)
+                                    then (past, current, sortedInsertion future $ carSpeedTransformGoing (time current) LCarLeave $ speed current, rgen, pedpool, addStatSystemCarPoint 0 stats)
                                else (past, current, sortedInsertion future $ Event LCarStop (time $ getFirstEvent Red future) (speed current), rgen, pedpool, stats)
                                -- else stop. TODO: carpool??? We don't know when the Green will hit
                                    -- TODO: Hack: reschedule the car to stop (again) when the RED happens. THEEEENNN it'll get scheduled after the Green
-                    Red     -> (past, current, sortedInsertion future $ addTimeToEvent ((time $ getFirstEvent Green future) - (time current)) $ carSpeedTransformGoing (time current) LCarLeave $ speed current, rgen, pedpool, stats)
+                                   -- TODO: Make a car pool
+                    Red     -> (past, current, sortedInsertion future $ carSpeedTransformGoing (time current) LCarLeave $ speed current, rgen, pedpool, addStatSystemCarPoint ((time $ getFirstEvent Green future) - (time current)) stats)
                                 -- Leave when the green comes up. We know when that is, so schedule a CarLeave
                     _       -> (past, current, future, rgen, pedpool, stats) -- Do.. nothing... I guess... TODO: trace?
         RCarStop ->
             let lightstat   = head $ filter (\x -> x == Green || x == Yellow || x == Red) $ map eventType past
                 in case lightstat of
-                    Green   -> (past, current, sortedInsertion future $ carSpeedTransformGoing (time current) RCarLeave $ speed current, rgen, pedpool, stats) -- Schedule CarLeave
+                    Green   -> (past, current, sortedInsertion future $ carSpeedTransformGoing (time current) RCarLeave $ speed current, rgen, pedpool, addStatSystemCarPoint 0 stats) -- Schedule CarLeave
                     Yellow  -> if (time $ getFirstEvent Red future) - time current >= (fromMaybe 0 $ speed current) / 48
-                                    then (past, current, sortedInsertion future $ carSpeedTransformGoing (time current) RCarLeave $ speed current, rgen, pedpool, stats)
+                                    then (past, current, sortedInsertion future $ carSpeedTransformGoing (time current) RCarLeave $ speed current, rgen, pedpool, addStatSystemCarPoint 0 stats)
                                else (past, current, sortedInsertion future $ Event RCarStop (time $ getFirstEvent Red future) (speed current), rgen, pedpool, stats)
                                -- else stop. TODO: carpool??? We don't know when the Green will hit
                                    -- TODO: Hack: reschedule the car to stop (again) when the RED happens. THEEEENNN it'll get scheduled after the Green
-                    Red     -> (past, current, sortedInsertion future $ addTimeToEvent ((time $ getFirstEvent Green future) - (time current)) $ carSpeedTransformGoing (time current) RCarLeave $ speed current, rgen, pedpool, stats)
+                                   -- TODO: Make a car pool
+                    Red     -> (past, current, sortedInsertion future $ carSpeedTransformGoing (time current) RCarLeave $ speed current, rgen, pedpool, addStatSystemCarPoint ((time $ getFirstEvent Green future) - (time current)) stats)
                     _       -> (past, current, future, rgen, pedpool, stats) -- Do.. nothing... I guess... TODO: trace?
         PedPushButton -> (past, current, sortedInsertion future (Event Yellow (max (time current + 1) (time $ getFirstEvent Green past)) Nothing), rgen, pedpool, stats)
         CheckPool -> if length pedpool > 0 then (past, current, sortedInsertion future (Event PedPushButton (time current) Nothing), rgen, pedpool, stats) else (past, current, future, rgen, pedpool, stats)
