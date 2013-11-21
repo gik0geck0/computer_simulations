@@ -388,9 +388,9 @@ processEvent (past, current, future, rgen, pedpool, stats) =
                                     startQuadWithPair (past, current) $ maybePushButton (1.0/ fromIntegral (length pedpool)) (current, future, rgen, (0, fromMaybe 0 $ speed current):pedpool, stats)
                     _       -> (past, current, future, rgen, pedpool, stats) -- TODO: Should I add a trace here, to indicate that this is going on?
         -- TODO: Check time current, and prevent any spawning if it's greater than the proposed simulation end time
-        SpawnPed -> addPairToQuad (pedpool, stats) $ dupleCombine (past, current) $ addPedSpawn (time current) $ applyRandom future PedAtButton $ pedSpeedTransformComing (time current) $ randomPedSpeed rgen
-        LSpawnCar -> addPairToQuad (pedpool, stats) $ dupleCombine (past, current) $ addLCarSpawn (time current) $ applyRandom future LCarStop $ carSpeedTransformComing (time current) $ randomLCarSpeed rgen
-        RSpawnCar -> addPairToQuad (pedpool, stats) $ dupleCombine (past, current) $ addRCarSpawn (time current) $ applyRandom future RCarStop $ carSpeedTransformComing (time current) $ randomRCarSpeed rgen
+        SpawnPed -> addPairToQuad (pedpool, addSystemPed stats) $ dupleCombine (past, current) $ addPedSpawn (time current) $ applyRandom future PedAtButton $ pedSpeedTransformComing (time current) $ randomPedSpeed rgen
+        LSpawnCar -> addPairToQuad (pedpool, addSystemCar stats) $ dupleCombine (past, current) $ addLCarSpawn (time current) $ applyRandom future LCarStop $ carSpeedTransformComing (time current) $ randomLCarSpeed rgen
+        RSpawnCar -> addPairToQuad (pedpool, addSystemCar stats) $ dupleCombine (past, current) $ addRCarSpawn (time current) $ applyRandom future RCarStop $ carSpeedTransformComing (time current) $ randomRCarSpeed rgen
         LCarStop ->
             let lightstat   = head $ filter (\x -> x == Green || x == Yellow || x == Red) $ map eventType past
                 in case lightstat of
@@ -416,9 +416,9 @@ processEvent (past, current, future, rgen, pedpool, stats) =
                     _       -> (past, current, future, rgen, pedpool, stats) -- Do.. nothing... I guess... TODO: trace?
         PedPushButton -> (past, current, sortedInsertion future (Event Yellow (max (time current + 1) (time $ getFirstEvent Green past)) Nothing), rgen, pedpool, stats)
         CheckPool -> if length pedpool > 0 then (past, current, sortedInsertion future (Event PedPushButton (time current) Nothing), rgen, pedpool, stats) else (past, current, future, rgen, pedpool, stats)
-        PedWalkEnd -> (past, current, future, rgen, pedpool, stats) -- A Pedestrian is leaving. We will do nothing in particular
-        LCarLeave -> (past, current, future, rgen, pedpool, stats)  -- A Car is leaving. We will do nothing in particular
-        RCarLeave -> (past, current, future, rgen, pedpool, stats)  -- A Car is leaving. We will do nothing in particular
+        PedWalkEnd -> (past, current, future, rgen, pedpool, removeSystemPed stats) -- A Pedestrian is leaving. We will merely decrease the number of system-pedestrians
+        LCarLeave -> (past, current, future, rgen, pedpool, removeSystemCar stats)  -- A Car is leaving. We will merely decrease the number of system-cars
+        RCarLeave -> (past, current, future, rgen, pedpool, removeSystemCar stats)  -- A Car is leaving. We will merely decrease the number of system-cars
         -- Hopefully, this catch-all will never happen... hopefully...
         -- _ -> (past, current, future, rgen, pedpool)
 
