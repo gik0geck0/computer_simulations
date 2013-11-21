@@ -75,8 +75,8 @@ getStats (_,_,_,_,_,_,stats) = stats
 --  two. Row 2 should have the r2 correlations, row 3 the r3 correlations, and so on and so forth.
 --  Autocorrelations up to r20 should be reported in acwait.dat.
 
--- Simple includes (min, max, avg, stdev, count)
-type SimpleStat = (Double, Double, Double, Double, Int)
+-- Simple includes (pt, min, max, avg, stdev, count)
+type SimpleStat = (Double, Double, Double, Double, Double, Int)
 -- Pop has number in simulation (ped, car)
 type PopStat = (Int, Int)
 --              Auto Correlation involves a (running autoCoVariance, lag size)  -- These NEED to be updated each time the lag-history changes
@@ -91,11 +91,11 @@ type StatState = (SimpleStat, SimpleStat, PopStat, HistoryModule, HistoryModule)
 
 initStatState :: StatState
 initStatState = (
-    (999999, 0, 0, 0, 0),
-    (999999, 0, 0, 0, 0),
+    (0, 999999, 0, 0, 0, 0),
+    (0, 999999, 0, 0, 0, 0),
     (0, 0),
-    ([(999999, 0, 0, 0, 0)], [0]),
-    ([(999999, 0, 0, 0, 0)], [0]) )
+    ([(0, 999999, 0, 0, 0, 0)], [0]),
+    ([(0, 999999, 0, 0, 0, 0)], [0]) )
 
 --------
 --Stat Functions
@@ -114,12 +114,13 @@ removeSystemCar :: StatState -> StatState
 removeSystemCar (a,b, (npeds, ncars), c, d) = (a,b, (npeds, ncars-1), c, d)
 
 addSimple :: Double -> SimpleStat -> SimpleStat
-addSimple pt (min, max, avg, var, n) =
+addSimple pt (oldpt, min, max, avg, var, n) =
     let newcount = n+1
         newavg = welfordAvg avg (n+1) pt
         newstdev = welfordVar var avg newcount pt
     in
     (
+        pt,
         if pt < min then pt else min,
         if pt > max then pt else max,
         newavg,
@@ -151,13 +152,14 @@ addStatSystemCarPoint pt (simpleped, simplecar, pop, pedhist, carhist) =
 
 addToHist :: SimpleStat -> HistoryModule -> HistoryModule
 addToHist newstat (stats, coVars) =
-    if length stats < 20 then (newstat:stats, (calculateCoVar (head coVars) newstat):coVars)
-    else (newstat:(init stats),
-        (calculateCoVar (head coVars) newstat):(init coVars)
-    )
+    let newCoVars = map (calculateCoVar newstat) $ zip stats coVars
+        in if length stats < 20 then (newstat:stats, 0:newCoVars)
+        else (newstat:(init stats),
+            newCoVars
+        )
 
-calculateCoVar :: AutoCoVarStat -> SimpleStat -> AutoCoVarStat
-calculateCoVar oldCoVar (_,_, avg, var, newcount) = oldCoVar
+calculateCoVar :: SimpleStat -> (SimpleStat, AutoCoVarStat) -> AutoCoVarStat
+calculateCoVar (ptA,_,_,avgA,_,_) ((ptB,_,_,avgB,_,newcount), oldCoVar) = oldCoVar + (fromIntegral newcount-1/fromIntegral newcount) * (ptA-avgA) * (ptB-avgB)
 
 --------
 -- Welford Equations
@@ -169,10 +171,6 @@ welfordVar :: Double -> Double -> Int -> Double -> Double
 welfordVar _ _ 0 nextVal = 0
 welfordVar _ _ 1 nextVal = 0
 welfordVar lastVar lastAvg newCount nextVal = lastVar + ((fromIntegral newCount-1)/fromIntegral newCount) * ((nextVal - lastAvg)**2)
-
-getWelford :: SimpleStat -> Double
-getWelford (_, _, avg, _, n) = avg/ fromIntegral n
-
 
 --------
 -- Maybe Hacks and Other Small things
@@ -335,23 +333,23 @@ randomPedSpeed :: LehmerState -> (Double, LehmerState)
 randomPedSpeed = uniformRange 6 13 . stream 0
 
 randomLCarSpeed :: LehmerState -> (Double, LehmerState)
-randomLCarSpeed = uniformRange 25 35 . stream 2
+randomLCarSpeed = uniformRange 25 35 . stream 0
 
 randomRCarSpeed :: LehmerState -> (Double, LehmerState)
-randomRCarSpeed = uniformRange 25 35 . stream 3
+randomRCarSpeed = uniformRange 25 35 . stream 0
 
 randomPedSpawn :: LehmerState -> (Double, LehmerState)
-randomPedSpawn = makeExponential (60/4) . uniform . stream 1
+randomPedSpawn = makeExponential (60/4) . uniform . stream 0
 
 randomLCarSpawn :: LehmerState -> (Double, LehmerState)
-randomLCarSpawn = makeExponential (60/4) . uniform . stream 4
+randomLCarSpawn = makeExponential (60/4) . uniform . stream 0
 
 randomRCarSpawn :: LehmerState -> (Double, LehmerState)
-randomRCarSpawn = makeExponential (60/4) . uniform . stream 5
+randomRCarSpawn = makeExponential (60/4) . uniform . stream 0
 
 randomButtonPressNow :: Double -> (Event, [Event], LehmerState) -> ([Event], LehmerState)
 randomButtonPressNow probability (current, future, rgen)
-    = let (u, newgen) = uniform $ stream 6 rgen
+    = let (u, newgen) = uniform $ stream 0 rgen
         -- probability to push the button "now".
         -- TODO: This breaks one of the axioms of NextEventSimulations: NEVER schedule another event for the same time as the current time
     in if u < probability then (sortedInsertion future (Event PedPushButton (time current) (speed current)), newgen)
@@ -363,8 +361,8 @@ randomButtonPressNow probability (current, future, rgen)
 
 -- Take a lambda and a call from uniform (previously performed), and turn it into an exponential distribution
 makeExponential :: Double -> (Double, LehmerState) -> (Double, LehmerState)
-makeExponential lambda (u, s)
-   | trace ("Uniform=" ++ show u ++ "==> exponential=" ++ (show $ (-lambda * log (1-u)))) False = undefined
+-- makeExponential lambda (u, s)
+--    | trace ("Uniform=" ++ show u ++ "==> exponential=" ++ (show $ (-lambda * log (1-u)))) False = undefined
 makeExponential lambda (u, s) = ( -lambda * log (1-u) , s)
 
 -- Linker that adds a new pedestrian-spawn to the event list.
@@ -579,8 +577,8 @@ main = do
                     let endstate = iterateUntilNoTomorrow fintime $ justStateToMaybe $ startState seed
                         past = getPast endstate
                         stats@(
-                            pedwaits@(pedmin, pedmax, pedavg, pedrawvar, pedcount),
-                            carwaits@(carmin, carmax, caravg, carrawvar, carcount),
+                            pedwaits@(pedpt, pedmin, pedmax, pedavg, pedrawvar, pedcount),
+                            carwaits@(carpt, carmin, carmax, caravg, carrawvar, carcount),
                             (peds, cars),
                             (pedCoVars),
                             (carCoVars)
