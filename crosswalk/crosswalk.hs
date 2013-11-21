@@ -79,9 +79,8 @@ getStats (_,_,_,_,_,_,stats) = stats
 type SimpleStat = (Double, Double, Double, Double, Double, Int)
 -- Pop has number in simulation (ped, car)
 type PopStat = (Int, Int)
---              Auto Correlation involves a (running autoCoVariance, lag size)  -- These NEED to be updated each time the lag-history changes
+
 type AutoCoVarStat = Double -- One per lag
-type LagHistory = [Double] -- Front of the list represents the most recent point (lag=0)
 
 --               (CurrentStats for Lags, Current CoVar)
 type HistoryModule = ([SimpleStat], [AutoCoVarStat])
@@ -158,9 +157,6 @@ addToHist newstat (stats, coVars) =
             newCoVars
         )
 
-calculateCoVar :: SimpleStat -> (SimpleStat, AutoCoVarStat) -> AutoCoVarStat
-calculateCoVar (ptA,_,_,avgA,_,_) ((ptB,_,_,avgB,_,newcount), oldCoVar) = oldCoVar + (fromIntegral newcount-1/fromIntegral newcount) * (ptA-avgA) * (ptB-avgB)
-
 --------
 -- Welford Equations
 --------
@@ -171,6 +167,9 @@ welfordVar :: Double -> Double -> Int -> Double -> Double
 welfordVar _ _ 0 nextVal = 0
 welfordVar _ _ 1 nextVal = 0
 welfordVar lastVar lastAvg newCount nextVal = lastVar + ((fromIntegral newCount-1)/fromIntegral newCount) * ((nextVal - lastAvg)**2)
+
+calculateCoVar :: SimpleStat -> (SimpleStat, AutoCoVarStat) -> AutoCoVarStat
+calculateCoVar (ptA,_,_,avgA,_,_) ((ptB,_,_,avgB,_,newcount), oldCoVar) = oldCoVar + (fromIntegral newcount-1/fromIntegral newcount) * (ptA-avgA) * (ptB-avgB)
 
 --------
 -- Maybe Hacks and Other Small things

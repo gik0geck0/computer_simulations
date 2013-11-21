@@ -1,0 +1,33 @@
+Crosswalk Simulation
+for Computer Simulations, taught by Keith Hellman
+Date: 2013-11-20
+Author: Matt Buland
+
+External Libraries used:
+Haskell Base
+Haskell Containers
+haskell-lehmer; Author: Zach Stigall
+    Zach's project was packaged with mine to make it easier on you, and reduce
+    the number of potential faults. I claim no contributions to it.
+
+You can find my use of Zach's Lehmer Pseudo Random Number generator between
+    lines 329 and 356 of crosswalk.hs
+
+The usage and definition of the Welford equations/objects/functions/accessors
+    can be found between lines 79 and 172 of crosswalk.hs
+    Note that there's a lot of things being held in one place. Performing all
+    of this proved to be moderately difficult with an immutable language. That's
+    not to say that I implemented it in the best way possible... Just a simple
+    remark that I found it difficult.
+
+Other organizational hints (if you go digging further)
+    * Main is that last function defined
+    * writeAcWait writes the autocovariance file
+    * ~line 480 has the state-transitioner. (iterateUntilNoTomorrow)
+    * The giant function @400 is the event-deciding function. Yes, it sucks, but seems to work.
+    * I always wondered if I should be using a monad to hold the state info
+        (such as the State Monad), but didn't use one.
+    * all data types are defined at the top
+    * the commented out trace() calls (in guards) off a way to debug function calls
+        at the beginning of their calling, which is quite nice in Haskell, which
+        explicitly disallows impure IO (as much as possible, that is).
