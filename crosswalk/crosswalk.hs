@@ -5,6 +5,7 @@ import Debug.Trace
 -- import Control.Monad.State
 import System.Environment
 import System.Random.Lehmer.Base
+import Text.Printf
 
 data EventType = Red | Green | Yellow
     | LSpawnCar | LCarStop | LCarLeave
@@ -41,6 +42,18 @@ type Pool = [PoolItem]
 --                 (past,    current,     future,  rgen,      pedpool,carpool, stats)
 type SystemState = ([Event], Maybe Event, [Event], LehmerState, Pool, Pool, StatState)
 type JustSystemState = ([Event], Event, [Event], LehmerState, Pool, Pool, StatState)
+
+getPast :: SystemState -> [Event]
+getPast (past,_,_,_,_,_,_) = past
+
+getCurrent :: SystemState -> Maybe Event
+getCurrent (_,current,_,_,_,_,_) = current
+
+getFuture :: SystemState -> [Event]
+getFuture (_,_,future,_,_,_,_) = future
+
+getStats :: SystemState -> StatState
+getStats (_,_,_,_,_,_,stats) = stats
 
 --------
 -- Stat Storing
@@ -171,9 +184,6 @@ justStateToMaybe (past, current, future, rgen, pedpool, carpool, stats) = (past,
 maybeStateToJust :: SystemState -> JustSystemState
 maybeStateToJust (past, current, future, rgen, pedpool, carpool, stats) = (past, (fromMaybe (Event CheckPool 0 Nothing) current), future, rgen, pedpool, carpool, stats)
 -- the current event must be a maybe. WHEN current=Nothing, the simulation must be over. There are no more events
-
-getPast :: SystemState -> [Event]
-getPast (past,_,_,_,_,_,_) = past
 
 --------
 -- Tuple Helpers
@@ -571,7 +581,22 @@ main = do
                 in do
                     putStrLn ("Running the simulation with seed=" ++ (show seed) ++ ", ending at time=" ++ (show time))
                     -- Iterate until the sim is over, then show the final-state
-                    let past = getPast $ iterateUntilNoTomorrow time $ justStateToMaybe $ startState seed
+                    let endstate = iterateUntilNoTomorrow time $ justStateToMaybe $ startState seed
+                        past = getPast endstate
+                        stats@(
+                            pedwaits@(pedmin, pedmax, pedavg, pedrawvar, pedcount),
+                            carwaits@(carmin, carmax, caravg, carrawvar, carcount),
+                            (pedsremain, carsremain),
+                            (pedCoVars),
+                            (carCoVars)
+                            ) = getStats endstate
                         in do
-                            mapM_ putStrLn (map show past)
-                            putStrLn ("Past decreasing?" ++ (show $ validateDecreasing past))
+                            -- mapM_ putStrLn (map show past)
+                            putStrLn ("Is the past decreasing? " ++ (show $ validateDecreasing past))
+                            if (pedsremain > 0) then putStrLn ("There were remaining pedestrians. Remaining events: " ++ (show (maybeCons (getCurrent endstate) $ getFuture endstate)))
+                            else putStrLn "No remaining pedestrians. Thats good"
+
+                            if (carsremain > 0) then putStrLn ("There were remaining cars. Remaining events: " ++ (show (maybeCons (getCurrent endstate) $ getFuture endstate)))
+                            else putStrLn "No remaining cars. Thats good"
+                            -- Show the final statistics
+                            printf "Pedestrian Simple Stats: min=%f max=%f avg=%f stdev=%f count=%i" pedmin pedmax (pedavg/fromIntegral pedcount) (sqrt(pedrawvar/fromIntegral pedcount)) pedcount
