@@ -322,6 +322,9 @@ carSpeedTransformGoing now etype speed = Event etype (now + 1191.0 / ((fromMaybe
 addTimeToEvent :: Double -> Event -> Event
 addTimeToEvent additional event = Event (eventType event) (additional + time event) (speed event)
 
+addTimeToFst :: Double -> (Double, a) -> (Double, a)
+addTimeToFst additional (fst, a) = (additional + fst, a)
+
 carSpawnTransform :: (Double, LehmerState) -> (Maybe Double, Double, LehmerState)
 carSpawnTransform (timeval, rgen) = (Nothing, timeval, rgen)
 
@@ -338,13 +341,13 @@ randomRCarSpeed :: LehmerState -> (Double, LehmerState)
 randomRCarSpeed = uniformRange 25 35 . stream 3
 
 randomPedSpawn :: LehmerState -> (Double, LehmerState)
-randomPedSpawn = makeExponential (60*4) . uniform . stream 1
+randomPedSpawn = makeExponential (60/4) . uniform . stream 1
 
 randomLCarSpawn :: LehmerState -> (Double, LehmerState)
-randomLCarSpawn = makeExponential (60*4) . uniform . stream 4
+randomLCarSpawn = makeExponential (60/4) . uniform . stream 4
 
 randomRCarSpawn :: LehmerState -> (Double, LehmerState)
-randomRCarSpawn = makeExponential (60*4) . uniform . stream 5
+randomRCarSpawn = makeExponential (60/4) . uniform . stream 5
 
 randomButtonPressNow :: Double -> (Event, [Event], LehmerState) -> ([Event], LehmerState)
 randomButtonPressNow probability (current, future, rgen)
@@ -360,20 +363,20 @@ randomButtonPressNow probability (current, future, rgen)
 
 -- Take a lambda and a call from uniform (previously performed), and turn it into an exponential distribution
 makeExponential :: Double -> (Double, LehmerState) -> (Double, LehmerState)
--- makeExponential lambda (u, s)
---    | trace ("Turning uniform=" ++ show u ++ " into an exponential distribution") False = undefined
+makeExponential lambda (u, s)
+   | trace ("Uniform=" ++ show u ++ "==> exponential=" ++ (show $ (-lambda * log (1-u)))) False = undefined
 makeExponential lambda (u, s) = ( -lambda * log (1-u) , s)
 
 -- Linker that adds a new pedestrian-spawn to the event list.
 -- Note: This does not actually spawn a pedestrian. Merely an event for WHEN a pedestrian will spawn
 addPedSpawn :: Double -> ([Event], LehmerState) -> ([Event], LehmerState)
-addPedSpawn now (elist, rgen) = applyRandom elist SpawnPed $ pedSpeedTransformComing now $ randomPedSpawn rgen -- randomCarSpawn rgen
+addPedSpawn now (elist, rgen) = applyRandom elist SpawnPed $ tupleInsert Nothing $ addTimeToFst now $ randomPedSpawn rgen -- randomCarSpawn rgen
 
 addLCarSpawn :: Double -> ([Event], LehmerState) -> ([Event], LehmerState)
-addLCarSpawn now (elist, rgen) = applyRandom elist LSpawnCar $ carSpeedTransformComing now $ randomLCarSpawn rgen -- randomCarSpawn rgen
+addLCarSpawn now (elist, rgen) = applyRandom elist LSpawnCar $ tupleInsert Nothing $ addTimeToFst now $ randomLCarSpawn rgen -- randomCarSpawn rgen
 
 addRCarSpawn :: Double -> ([Event], LehmerState) -> ([Event], LehmerState)
-addRCarSpawn now (elist, rgen) = applyRandom elist RSpawnCar $ carSpeedTransformComing now $ randomRCarSpawn rgen -- randomCarSpawn rgen
+addRCarSpawn now (elist, rgen) = applyRandom elist RSpawnCar $ tupleInsert Nothing $ addTimeToFst now $ randomRCarSpawn rgen -- randomCarSpawn rgen
 
 -- Push the button now if u[0,1) < probability
 maybePushButton :: Double -> (Event, [Event], LehmerState, Pool, Pool, StatState) -> ([Event], LehmerState, Pool, Pool, StatState)
