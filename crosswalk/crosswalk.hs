@@ -338,17 +338,17 @@ randomRCarSpeed :: LehmerState -> (Double, LehmerState)
 randomRCarSpeed = uniformRange 25 35 . stream 3
 
 randomPedSpawn :: LehmerState -> (Double, LehmerState)
-randomPedSpawn = makeExponential (60/4) . uniform . stream 1
+randomPedSpawn = makeExponential (60*4) . uniform . stream 1
 
 randomLCarSpawn :: LehmerState -> (Double, LehmerState)
-randomLCarSpawn = makeExponential (60/4) . uniform . stream 4
+randomLCarSpawn = makeExponential (60*4) . uniform . stream 4
 
 randomRCarSpawn :: LehmerState -> (Double, LehmerState)
-randomRCarSpawn = makeExponential (60/4) . uniform . stream 5
+randomRCarSpawn = makeExponential (60*4) . uniform . stream 5
 
 randomButtonPressNow :: Double -> (Event, [Event], LehmerState) -> ([Event], LehmerState)
 randomButtonPressNow probability (current, future, rgen)
-    = let (u, newgen) = uniform rgen
+    = let (u, newgen) = uniform $ stream 6 rgen
         -- probability to push the button "now".
         -- TODO: This breaks one of the axioms of NextEventSimulations: NEVER schedule another event for the same time as the current time
     in if u < probability then (sortedInsertion future (Event PedPushButton (time current) (speed current)), newgen)
@@ -452,9 +452,9 @@ processEvent (past, current, future, rgen, pedpool, carpool, stats) =
                     _       -> (past, current, future, rgen, pedpool, carpool, stats) -- Do.. nothing... I guess... TODO: trace?
         PedPushButton -> (past, current, sortedInsertion future (Event Yellow (max (time current + 1) (time $ getFirstEvent Green past)) Nothing), rgen, pedpool, carpool, stats)
         CheckPool -> if length pedpool > 0 then (past, current, sortedInsertion future (Event PedPushButton (time current) Nothing), rgen, pedpool, carpool, stats) else (past, current, future, rgen, pedpool, carpool, stats)
-        PedWalkEnd -> (past, current, future, rgen, pedpool, carpool, removeSystemPed stats) -- A Pedestrian is leaving. We will merely decrease the number of system-pedestrians
-        LCarLeave -> (past, current, future, rgen, pedpool, carpool, removeSystemCar stats)  -- A Car is leaving. We will merely decrease the number of system-cars
-        RCarLeave -> (past, current, future, rgen, pedpool, carpool, removeSystemCar stats)  -- A Car is leaving. We will merely decrease the number of system-cars
+        PedWalkEnd -> (past, current, future, rgen, pedpool, carpool, stats) -- A Pedestrian is leaving. We will merely decrease the number of system-pedestrians
+        LCarLeave -> (past, current, future, rgen, pedpool, carpool, stats)  -- A Car is leaving. We will merely decrease the number of system-cars
+        RCarLeave -> (past, current, future, rgen, pedpool, carpool, stats)  -- A Car is leaving. We will merely decrease the number of system-cars
         -- Hopefully, this catch-all will never happen... hopefully...
         -- _ -> (past, current, future, rgen, pedpool)
 
@@ -568,28 +568,32 @@ main = do
                     putStrLn ("InsertionSort works? " ++ testInsertionSort)
         else
             -- Run the simulation
-            let time = read $ args !! 1 :: Double
+            let fintime = read $ args !! 1 :: Double
                 seed = read $ args !! 2 :: Int
                 in do
-                    putStrLn ("Running the simulation with seed=" ++ (show seed) ++ ", ending at time=" ++ (show time))
+                    putStrLn ("Running the simulation with seed=" ++ (show seed) ++ ", ending at time=" ++ (show fintime))
                     -- Iterate until the sim is over, then show the final-state
-                    let endstate = iterateUntilNoTomorrow time $ justStateToMaybe $ startState seed
+                    let endstate = iterateUntilNoTomorrow fintime $ justStateToMaybe $ startState seed
                         past = getPast endstate
                         stats@(
                             pedwaits@(pedmin, pedmax, pedavg, pedrawvar, pedcount),
                             carwaits@(carmin, carmax, caravg, carrawvar, carcount),
-                            (pedsremain, carsremain),
+                            (peds, cars),
                             (pedCoVars),
                             (carCoVars)
                             ) = getStats endstate
                         in do
                             -- mapM_ putStrLn (map show past)
                             putStrLn ("Is the past decreasing? " ++ (show $ validateDecreasing past))
-                            if (pedsremain > 0) then putStrLn ("There were remaining pedestrians. Remaining events: " ++ (show (maybeCons (getCurrent endstate) $ getFuture endstate)))
-                            else putStrLn "No remaining pedestrians. Thats good"
+                            -- if (pedsremain > 0) then putStrLn ("There were remaining pedestrians. Remaining events: " ++ (show (maybeCons (getCurrent endstate) $ getFuture endstate)))
+                            -- else putStrLn "No remaining pedestrians. Thats good"
 
-                            if (carsremain > 0) then putStrLn ("There were remaining cars. Remaining events: " ++ (show (maybeCons (getCurrent endstate) $ getFuture endstate)))
-                            else putStrLn "No remaining cars. Thats good"
+                            -- if (carsremain > 0) then putStrLn ("There were remaining cars. Remaining events: " ++ (show (maybeCons (getCurrent endstate) $ getFuture endstate)))
+                            -- else putStrLn "No remaining cars. Thats good"
                             -- Show the final statistics
-                            printf "Pedestrian Simple Stats: min=%f max=%f avg=%f stdev=%f count=%i" pedmin pedmax (pedavg/fromIntegral pedcount) (sqrt(pedrawvar/fromIntegral pedcount)) pedcount
+                            putStrLn ("OUTPUT Duration " ++ (show (((time $ head past) - fintime)/60)))
+                            putStrLn ("OUTPUT Total Pedestrians " ++ (show peds))
+                            putStrLn ("OUTPUT Total Cars " ++ (show cars))
+                            printf "OUTPUT Pedestrian min=%f max=%f avg=%f stdev=%f\n" pedmin pedmax pedavg (sqrt(pedrawvar/fromIntegral pedcount))
+                            printf "OUTPUT Car min=%f max=%f avg=%f stdev=%f\n" carmin carmax caravg (sqrt(carrawvar/fromIntegral carcount))
                             writeAcWait pedCoVars carCoVars
