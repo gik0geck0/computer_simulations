@@ -17,15 +17,15 @@ data Event = Event {
     eventType :: EventType,
     time :: Double,         -- Time in s
     speed :: Maybe Double  -- Speed in ft/s for CarEvents and PedestrianEvents
-    -- id :: Maybe Int         -- Unique Identified. For either a pedestrian or a car. (Car unimplemented/unused right now)
-                            -- NOTE: Why did I need the ID?
 } deriving (Show)
+
 instance Eq Event where
     (Event _ t1 _) == (Event _ t2 _) = t1 == t2
 instance Ord Event where
     (Event _ t1 _) `compare` (Event _ t2 _) = t1 `compare` t2
 
-type PoolItem = (Int, Double)
+--              (BeginTime, Speed)
+type PoolItem = (Double, Double)
 type Pool = [PoolItem]
 --              PastEvents, Current State, FutureEvents
 --              PastEvents will only contain important past events; listed below are these important events
@@ -350,11 +350,13 @@ maybePushButton :: Double -> (Event, [Event], LehmerState, Pool, StatState) -> (
 maybePushButton probability (current, future, rgen, pedpool, stats) = addPairToPair (pedpool, stats) $ randomButtonPressNow probability (current, future, rgen)
 
 -- Have everyone in the pedestrian pool walk across the crosswalk
-dumpPool :: Double -> [(Int, Double)] -> [Event] -> [Event]
-dumpPool now pool elist = foldl (poolFold now) elist pool
+dumpPool :: Double -> [PoolItem] -> StatState -> [Event] -> ([Event], StatState)
+dumpPool now pool stats elist = foldl (poolFold now) (elist, stats) pool
 
-poolFold :: Double -> [Event] -> (Int, Double) -> [Event]
-poolFold now accum poolitem = sortedInsertion accum (Event PedWalkEnd (now + 48.0/snd poolitem) (Just (snd poolitem)))
+-- NOTE: This opportunity is being used to add pedestrian wait times to the statSystem
+-- Any pedestrian that does not enter this pool will need to manually enter their wait time
+poolFold :: Double -> ([Event], StatState) -> PoolItem -> ([Event], StatState)
+poolFold now accum poolitem = (sortedInsertion (fst accum) (Event PedWalkEnd (now + 48.0/snd poolitem) (Just (snd poolitem))), addStatSystemPedPoint (now - fst poolitem) (snd accum))
 
 --------
 -- Event Processing and Simulation Components
@@ -366,26 +368,27 @@ processEvent (past, current, future, rgen, pedpool, stats) =
     case eventType current of
                     -- TODO: When Red, I should probably be emptying the pool
                     -- TODO: I probably want to strip out any CheckPool events from the future, since a person in the past may now be moving on
-        Red     -> (past, current, filter (\x-> eventType x /= CheckPool) $ dumpPool (time current) pedpool $ sortedInsertion future (Event Green (time current + 12) Nothing), rgen, [], stats)
+        Red     -> let (newelist, newstats) = dumpPool (time current) pedpool stats $ sortedInsertion future (Event Green (time current + 12) Nothing)
+                   in (past, current, filter (\x-> eventType x /= CheckPool) newelist, rgen, [], newstats)
         Yellow  -> (past, current, sortedInsertion future (Event Red (time current + 8) Nothing), rgen, pedpool, stats)
         Green   -> (past, current, future, rgen, pedpool, stats) -- "Let the cars go" -- That would entail emptying a carpool...?
         PedAtButton ->
             let lightstat   = head $ filter (\x -> x == Green || x == Yellow || x == Red) $ map eventType past
                 in case lightstat of
-                    Yellow  -> (past, current, sortedInsertion future (Event PedWalkEnd (time $ head $ filter (\x -> eventType x == Red) future) (speed current)), rgen, pedpool, stats)
+                    Yellow  -> (past, current, sortedInsertion future (Event PedWalkEnd (time $ head $ filter (\x -> eventType x == Red) future) (speed current)), rgen, pedpool, addStatSystemPedPoint ((time $ head $ filter (\x -> eventType x == Red) future)-time current) stats)
                             -- If The time of the next Green - now >= time to cross (If there's time to cross)
                     Red     -> if (time $ head $ filter (\x -> eventType x == Green) future) - time current >= (48.0 / fromMaybe 0 (speed current))
                                     then (past, current, sortedInsertion future (Event PedWalkEnd ((time current) + 48.0 / fromMaybe 0 (speed current)) (speed current)), rgen, pedpool, stats)
                                     -- There was not enough time to cross. Wait around in the pool
-                                    else addCheckPool (past, current, future, rgen, (0, fromMaybe 0 (speed current)):pedpool, stats)
+                                    else addCheckPool (past, current, future, rgen, (time current, fromMaybe 0 (speed current)):pedpool, stats)
                             -- Is he/she alone?
                     Green   ->  if length pedpool == 0
                                     -- There's a 2/3 chance that they'll push the button immediately
-                                    then pairAddQuad (past, current) $ maybePushButton (2/3) (current, future, rgen, (0, fromMaybe 0 $ speed current):pedpool, stats)
+                                    then pairAddQuad (past, current) $ maybePushButton (2/3) (current, future, rgen, (time current, fromMaybe 0 $ speed current):pedpool, stats)
                                 else
                                     -- If others are around, probability to push button immediately is 1/n
                                     -- TODO: Does 1/n INCLUDE the new pedestrian? Or not. Currently, it assumes not. do 1/ n+1 if it does
-                                    startQuadWithPair (past, current) $ maybePushButton (1.0/ fromIntegral (length pedpool)) (current, future, rgen, (0, fromMaybe 0 $ speed current):pedpool, stats)
+                                    startQuadWithPair (past, current) $ maybePushButton (1.0/ fromIntegral (length pedpool)) (current, future, rgen, (time current, fromMaybe 0 $ speed current):pedpool, stats)
                     _       -> (past, current, future, rgen, pedpool, stats) -- TODO: Should I add a trace here, to indicate that this is going on?
         -- TODO: Check time current, and prevent any spawning if it's greater than the proposed simulation end time
         SpawnPed -> addPairToQuad (pedpool, addSystemPed stats) $ dupleCombine (past, current) $ addPedSpawn (time current) $ applyRandom future PedAtButton $ pedSpeedTransformComing (time current) $ randomPedSpeed rgen
