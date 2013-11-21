@@ -333,23 +333,23 @@ randomPedSpeed :: LehmerState -> (Double, LehmerState)
 randomPedSpeed = uniformRange 6 13 . stream 0
 
 randomLCarSpeed :: LehmerState -> (Double, LehmerState)
-randomLCarSpeed = uniformRange 25 35 . stream 0
+randomLCarSpeed = uniformRange 25 35 . stream 1
 
 randomRCarSpeed :: LehmerState -> (Double, LehmerState)
-randomRCarSpeed = uniformRange 25 35 . stream 0
+randomRCarSpeed = uniformRange 25 35 . stream 2
 
 randomPedSpawn :: LehmerState -> (Double, LehmerState)
-randomPedSpawn = makeExponential (60/4) . uniform . stream 0
+randomPedSpawn = makeExponential (60/4) . uniform . stream 3
 
 randomLCarSpawn :: LehmerState -> (Double, LehmerState)
-randomLCarSpawn = makeExponential (60/4) . uniform . stream 0
+randomLCarSpawn = makeExponential (60/4) . uniform . stream 4
 
 randomRCarSpawn :: LehmerState -> (Double, LehmerState)
-randomRCarSpawn = makeExponential (60/4) . uniform . stream 0
+randomRCarSpawn = makeExponential (60/4) . uniform . stream 5
 
 randomButtonPressNow :: Double -> (Event, [Event], LehmerState) -> ([Event], LehmerState)
 randomButtonPressNow probability (current, future, rgen)
-    = let (u, newgen) = uniform $ stream 0 rgen
+    = let (u, newgen) = uniform $ stream 6 rgen
         -- probability to push the button "now".
         -- TODO: This breaks one of the axioms of NextEventSimulations: NEVER schedule another event for the same time as the current time
     in if u < probability then (sortedInsertion future (Event PedPushButton (time current) (speed current)), newgen)
